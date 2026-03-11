@@ -31,7 +31,7 @@ BUY • SELL • HOLD
 
 ## 🎥  Application Preview
 
-![AI Powered Market Terminal APEX Demo](demo/apex_demo_vid.gif)
+![AI Powered Market Terminal APEX Demo](demo/apex_demo_video.gif)
 
 
 ---
