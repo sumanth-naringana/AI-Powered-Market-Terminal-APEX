@@ -259,7 +259,7 @@ Planned improvements:
 • Real-time price streaming
 • Cloud deployment
 
----
+
 
 # Disclaimer
 
@@ -269,10 +269,14 @@ It does **not constitute financial advice**.
 
 Always conduct your own market research before making trading decisions.
 
----
 
-# Author
 
-Sumanth Suvarna
+## 👨‍💻 Author
+
+**Sumanth Suvarna**
+
+GitHub:
+https://github.com/sumanth-naringana
+
 
 AI Engineering • Market Intelligence • Data Systems
