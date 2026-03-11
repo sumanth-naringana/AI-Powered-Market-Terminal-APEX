@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>APEX — AI Stock Dashboard</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+
+<style>
+/* ─── RESET & BASE ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* transition override: no-transition for layout-affecting props */
+.chart-wrap, #chart, #rsiChart { transition: none !important; }
+
+:root {
+  /* ── Dark theme (default) ── */
+  --bg:        #07080d;
+  --surface:   #0d0f18;
+  --surface2:  #131629;
+  --border:    rgba(255,255,255,0.06);
+  --border2:   rgba(255,255,255,0.10);
+  --accent:    #6ee7b7;
+  --accent2:   #38bdf8;
+  --accent3:   #f472b6;
+  --red:       #f87171;
+  --green:     #4ade80;
+  --yellow:    #fbbf24;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --faint:     rgba(255,255,255,0.04);
+
+  --font-display: 'Syne', sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+
+/* ── Light theme ── */
+:root.light {
+  --bg:        #f0f2f8;
+  --surface:   #ffffff;
+  --surface2:  #f5f7fc;
+  --border:    rgba(0,0,0,0.07);
+  --border2:   rgba(0,0,0,0.12);
+  --accent:    #0d9488;
+  --accent2:   #0284c7;
+  --accent3:   #db2777;
+  --red:       #dc2626;
+  --green:     #16a34a;
+  --yellow:    #d97706;
+  --text:      #0f172a;
+  --muted:     #64748b;
+  --faint:     rgba(0,0,0,0.03);
+}
+
+/* smooth theme transitions */
+*, *::before, *::after {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.18s ease, box-shadow 0.25s ease;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: default;
+}
+
+/* ─── NOISE OVERLAY ─────────────────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 999;
+  opacity: 0.4;
+}
+
+/* ─── SCROLLBAR ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+
+/* ─── LAYOUT ────────────────────────────────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: 220px 1fr 340px;
+  grid-template-rows: 52px 1fr;
+  height: 100vh;
+  gap: 0;
+}
+
+/* ─── TOP BAR ───────────────────────────────────────────────────────────── */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+
+.topbar::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.4;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.logo span {
+  color: var(--accent2);
+}
+
+.tagline {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.topbar-spacer { flex: 1; }
+
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--green);
+  padding: 4px 10px;
+  border: 1px solid rgba(74,222,128,0.25);
+  border-radius: 4px;
+  background: rgba(74,222,128,0.06);
+}
+
+.live-dot {
+  width: 6px; height: 6px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+.clock {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  min-width: 80px;
+  text-align: right;
+}
+
+/* ─── WATCHLIST ─────────────────────────────────────────────────────────── */
+#watchlist {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 18px 16px 12px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-header::before {
+  content: '';
+  width: 3px; height: 12px;
+  background: var(--accent);
+  border-radius: 2px;
+  display: block;
+}
+
+#watchlistItems {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.watchRow {
+  display: flex;
+  gap: 4px;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.watchBtn {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--faint);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+  letter-spacing: 0.04em;
+  position: relative;
+  overflow: hidden;
+}
+
+.watchBtn::after {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent2);
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+
+.watchBtn:hover {
+  background: rgba(56,189,248,0.08);
+  border-color: rgba(56,189,248,0.3);
+  color: var(--accent2);
+}
+
+.watchBtn:hover::after { opacity: 1; }
+
+.watchBtn.active {
+  background: rgba(110,231,183,0.08);
+  border-color: rgba(110,231,183,0.3);
+  color: var(--accent);
+}
+
+.watchBtn.active::after {
+  background: var(--accent);
+  opacity: 1;
+}
+
+.removeBtn {
+  width: 30px;
+  height: 34px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--faint);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.removeBtn:hover {
+  background: rgba(248,113,113,0.12);
+  border-color: rgba(248,113,113,0.4);
+  color: var(--red);
+}
+
+/* ─── WATCHLIST INPUTS ──────────────────────────────────────────────────── */
+.watchlist-footer {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+input[type="text"], input:not([type]) {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  letter-spacing: 0.06em;
+}
+
+input::placeholder { color: var(--muted); }
+
+input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(110,231,183,0.1);
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(110,231,183,0.3);
+  background: rgba(110,231,183,0.1);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.btn-primary:hover {
+  background: rgba(110,231,183,0.18);
+  border-color: rgba(110,231,183,0.5);
+  box-shadow: 0 0 16px rgba(110,231,183,0.15);
+}
+
+.btn-ghost {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-ghost:hover {
+  border-color: var(--border2);
+  color: var(--text);
+}
+
+/* ─── CHART AREA ────────────────────────────────────────────────────────── */
+#chartArea {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  padding: 16px;
+  gap: 12px;
+}
+
+.chart-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ticker-label {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: 0.04em;
+  min-width: 80px;
+}
+
+.ticker-price {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.ticker-change {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.ticker-change.up {
+  color: var(--green);
+  background: rgba(74,222,128,0.1);
+}
+
+.ticker-change.down {
+  color: var(--red);
+  background: rgba(248,113,113,0.1);
+}
+
+.ctrl-spacer { flex: 1; }
+
+.interval-group {
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.interval-btn {
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.interval-btn:hover { color: var(--text); }
+.interval-btn.active {
+  background: var(--surface2);
+  color: var(--accent2);
+  border: 1px solid var(--border2);
+}
+
+/* ─── CHART CONTAINERS ──────────────────────────────────────────────────── */
+.chart-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+/* force inner chart canvas bg in light mode */
+:root.light .chart-wrap { background: #ffffff; }
+
+.chart-label {
+  position: absolute;
+  top: 10px; left: 14px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  z-index: 2;
+  pointer-events: none;
+}
+
+#chart { flex: 1; min-height: 0; }
+#rsiChart { height: 160px; flex-shrink: 0; }
+
+/* ─── RIGHT PANEL ───────────────────────────────────────────────────────── */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* ─── NEWS ──────────────────────────────────────────────────────────────── */
+#newsPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+#newsList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.newsItem {
+  padding: 10px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+  animation: fadeUp 0.3s ease both;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.newsItem:hover {
+  background: var(--faint);
+  border-color: var(--border);
+}
+
+.newsItem a {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+.newsItem a:hover { color: var(--accent2); }
+
+.news-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.news-source {
+  font-size: 10px;
+  color: var(--accent2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.news-time {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.news-sentiment {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-left: auto;
+}
+
+.news-sentiment.bull { background: rgba(74,222,128,0.12); color: var(--green); }
+.news-sentiment.bear { background: rgba(248,113,113,0.12); color: var(--red); }
+.news-sentiment.neut { background: rgba(148,163,184,0.12); color: var(--muted); }
+
+/* ─── SIGNAL PANEL ──────────────────────────────────────────────────────── */
+#signalPanel {
+  padding: 16px;
+  flex-shrink: 0;
+}
+
+.signal-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.spin {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#signalResult {
+  margin-top: 10px;
+}
+
+.signal-card {
+  border-radius: 8px;
+  padding: 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.signal-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+.signal-card.buy {
+  background: rgba(74,222,128,0.07);
+  border: 1px solid rgba(74,222,128,0.25);
+}
+
+.signal-card.buy::before { background: var(--green); }
+
+.signal-card.sell {
+  background: rgba(248,113,113,0.07);
+  border: 1px solid rgba(248,113,113,0.25);
+}
+
+.signal-card.sell::before { background: var(--red); }
+
+.signal-card.hold {
+  background: rgba(251,191,36,0.07);
+  border: 1px solid rgba(251,191,36,0.25);
+}
+
+.signal-card.hold::before { background: var(--yellow); }
+
+.signal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.signal-badge.buy  { color: var(--green); }
+.signal-badge.sell { color: var(--red); }
+.signal-badge.hold { color: var(--yellow); }
+
+.signal-icon {
+  font-size: 20px;
+}
+
+.signal-reason {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+}
+
+/* ─── INDICATORS STRIP ──────────────────────────────────────────────────── */
+.indicator-strip {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+
+.ind-chip {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--faint);
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.ind-chip span {
+  color: var(--text);
+  margin-left: 4px;
+}
+
+/* ─── EMPTY STATE ───────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.empty-state .icon {
+  font-size: 36px;
+  opacity: 0.3;
+}
+
+.empty-state p {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ─── THEME TOGGLE ──────────────────────────────────────────────────────── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.toggle-track {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.25s;
+}
+
+:root.light .toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.25s cubic-bezier(.34,1.56,.64,1), background 0.25s;
+}
+
+:root.light .toggle-thumb {
+  transform: translateX(14px);
+  background: white;
+}
+
+.toggle-icon {
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.4s ease;
+}
+
+/* ─── HIDDEN NATIVE SELECT ──────────────────────────────────────────────── */
+select#interval { display: none; }
+</style>
+</head>
+
+<body>
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="logo">APEX<span>.</span></div>
+    <div class="tagline">AI-Powered Market Terminal</div>
+    <div class="topbar-spacer"></div>
+    <div class="live-badge">
+      <div class="live-dot"></div>
+      Live
+    </div>
+    <button class="theme-toggle" id="themeToggle" title="Toggle light/dark mode">
+      <span class="toggle-icon" id="themeIcon">🌙</span>
+      <div class="toggle-track"><div class="toggle-thumb"></div></div>
+      <span id="themeLabel">Dark</span>
+    </button>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
+
+  <!-- WATCHLIST -->
+  <aside id="watchlist">
+    <div class="panel-header">Watchlist</div>
+    <div id="watchlistItems"></div>
+    <div class="watchlist-footer">
+      <input id="symbol" type="text" placeholder="Ticker symbol…" autocomplete="off" autocapitalize="characters">
+      <button class="btn-primary" onclick="addStock()">+ Add to Watchlist</button>
+      <button class="btn-ghost" onclick="clearWatchlist()">Clear All</button>
+    </div>
+  </aside>
+
+  <!-- CHART AREA -->
+  <main id="chartArea">
+    <div class="chart-controls">
+      <div class="ticker-label" id="tickerLabel">—</div>
+      <div class="ticker-price" id="tickerPrice"></div>
+      <div class="ticker-change" id="tickerChange"></div>
+      <div class="ctrl-spacer"></div>
+      <div class="interval-group" id="intervalGroup">
+        <button class="interval-btn" data-val="1m">1m</button>
+        <button class="interval-btn" data-val="5m">5m</button>
+        <button class="interval-btn active" data-val="1h">1H</button>
+        <button class="interval-btn" data-val="1d">1D</button>
+      </div>
+    </div>
+
+    <div class="chart-wrap" style="flex:1;min-height:0;">
+      <div class="chart-label">Price · Candlestick</div>
+      <div id="chart" style="width:100%;height:100%;"></div>
+    </div>
+
+    <div class="chart-wrap" style="height:140px;flex-shrink:0;">
+      <div class="chart-label">RSI (14)</div>
+      <div id="rsiChart" style="width:100%;height:100%;"></div>
+    </div>
+
+    <!-- Hidden native select for app.js compatibility -->
+    <select id="interval">
+      <option value="1m">1 Minute</option>
+      <option value="5m">5 Minute</option>
+      <option value="1h" selected>1 Hour</option>
+      <option value="1d">Daily</option>
+    </select>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="right-panel">
+    <div class="panel-header">Market News</div>
+    <div class="indicator-strip" id="indicatorStrip">
+      <div class="ind-chip">RSI<span id="indRsi">—</span></div>
+      <div class="ind-chip">MACD<span id="indMacd">—</span></div>
+      <div class="ind-chip">Vol<span id="indVol">—</span></div>
+      <div class="ind-chip">MA50<span id="indMa">—</span></div>
+    </div>
+
+    <div id="newsPanel">
+      <div id="newsList">
+        <div class="empty-state">
+          <div class="icon">📰</div>
+          <p>Select a stock to load news</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="signalPanel">
+      <div class="panel-header" style="padding:0 0 10px;border:none;">AI Signal</div>
+      <div id="signalResult">
+        <div class="empty-state" style="height:auto;padding:16px 0;">
+          <div class="icon">🤖</div>
+          <p>Awaiting analysis</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* ── Theme toggle ───────────────────────────────────────────── */
+const DARK_CHART = {
+  layout: { background: { color: '#0d0f18' }, textColor: '#94a3b8' },
+  grid:   { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+  crosshair: { vertLine: { color: 'rgba(110,231,183,0.5)' }, horzLine: { color: 'rgba(110,231,183,0.5)' } },
+  rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
+  timeScale: { borderColor: 'rgba(255,255,255,0.08)', timeVisible: true },
+};
+
+const LIGHT_CHART = {
+  layout: { background: { color: '#ffffff' }, textColor: '#334155' },
+  grid:   { vertLines: { color: 'rgba(0,0,0,0.05)' }, horzLines: { color: 'rgba(0,0,0,0.05)' } },
+  crosshair: { vertLine: { color: 'rgba(13,148,136,0.6)' }, horzLine: { color: 'rgba(13,148,136,0.6)' } },
+  rightPriceScale: { borderColor: 'rgba(0,0,0,0.1)' },
+  timeScale: { borderColor: 'rgba(0,0,0,0.1)', timeVisible: true },
+};
+
+window.APEX_THEME = { isDark: true, dark: DARK_CHART, light: LIGHT_CHART };
+
+/* Called by app.js after it creates chart instances */
+window.apexCharts = [];  // app.js should push its chart instances here
+
+function applyChartTheme(isDark) {
+  const opts = isDark ? DARK_CHART : LIGHT_CHART;
+  (window.apexCharts || []).forEach(c => { try { c.applyOptions(opts); } catch(e){} });
+  // Also update chart wrapper bg to match
+  document.querySelectorAll('.chart-wrap').forEach(w => {
+    w.style.background = isDark ? '#0d0f18' : '#ffffff';
+  });
+}
+
+let isDark = true;
+document.getElementById('themeToggle').addEventListener('click', () => {
+  isDark = !isDark;
+  const root = document.documentElement;
+  if (isDark) {
+    root.classList.remove('light');
+    document.getElementById('themeIcon').textContent = '🌙';
+    document.getElementById('themeLabel').textContent = 'Dark';
+  } else {
+    root.classList.add('light');
+    document.getElementById('themeIcon').textContent = '☀️';
+    document.getElementById('themeLabel').textContent = 'Light';
+  }
+  window.APEX_THEME.isDark = isDark;
+  applyChartTheme(isDark);
+});
+
+/* ── Clock ─────────────────────────────────────────────────── */
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-US', { hour12: false });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+/* ── Interval button group ─────────────────────────────────── */
+document.querySelectorAll('.interval-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // sync hidden select for app.js
+    const sel = document.getElementById('interval');
+    sel.value = btn.dataset.val;
+    sel.dispatchEvent(new Event('change'));
+  });
+});
+
+/* ── Track active watchlist button ─────────────────────────── */
+document.getElementById('watchlistItems').addEventListener('click', e => {
+  const btn = e.target.closest('.watchBtn');
+  if (!btn) return;
+  document.querySelectorAll('.watchBtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  // Try to update ticker label from button text
+  const sym = btn.textContent.trim().toUpperCase();
+  document.getElementById('tickerLabel').textContent = sym;
+});
+
+/* ── Symbol input: auto-uppercase ──────────────────────────── */
+document.getElementById('symbol').addEventListener('input', function() {
+  const pos = this.selectionStart;
+  this.value = this.value.toUpperCase();
+  this.setSelectionRange(pos, pos);
+});
+
+/* ── Enter key support ─────────────────────────────────────── */
+document.getElementById('symbol').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addStock();
+});
+
+/* ── News item renderer (called by app.js if it populates #newsList) ─ */
+/* Provide a helper for enhanced news rendering */
+window.renderNewsItem = function(title, source, time, url, sentiment) {
+  const div = document.createElement('div');
+  div.className = 'newsItem';
+  const sentClass = sentiment === 'bull' ? 'bull' : sentiment === 'bear' ? 'bear' : 'neut';
+  const sentText  = sentiment === 'bull' ? '▲ Bullish' : sentiment === 'bear' ? '▼ Bearish' : '● Neutral';
+  div.innerHTML = `
+    <a href="${url || '#'}" target="_blank" rel="noopener">${title}</a>
+    <div class="news-meta">
+      <span class="news-source">${source || 'News'}</span>
+      <span class="news-time">${time || ''}</span>
+      <span class="news-sentiment ${sentClass}">${sentText}</span>
+    </div>`;
+  return div;
+};
+
+/* ── Signal renderer enhancement ───────────────────────────── */
+window.renderSignal = function(type, reason) {
+  const icons = { buy: '↑', sell: '↓', hold: '→' };
+  const label = type.toUpperCase();
+  const icon  = icons[type] || '●';
+  const el = document.getElementById('signalResult');
+  el.innerHTML = `
+    <div class="signal-card ${type}">
+      <div class="signal-badge ${type}">
+        <span class="signal-icon">${icon}</span>${label}
+      </div>
+      <div class="signal-reason">${reason || ''}</div>
+    </div>`;
+};
+</script>
+
+<script src="app.js"></script>
+</body>
+</html>
